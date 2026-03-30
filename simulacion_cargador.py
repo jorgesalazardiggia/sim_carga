@@ -69,6 +69,9 @@ def correr_simulacion():
     energia_entregada_red = 0.0
     rechazados_red = 0
     
+    vehiculos_bat_terminados_hoy = 0
+    vehiculos_red_terminados_hoy = 0
+    
     historial = []
     
     for t in range(minutos):
@@ -116,7 +119,9 @@ def correr_simulacion():
                     v['energia_restante'] -= energia_recibida
                     energia_entregada_bat += energia_recibida
             
-            vehiculos_bat = [v for v in vehiculos_bat if v['energia_restante'] > 0.01]
+            vehiculos_bat_next = [v for v in vehiculos_bat if v['energia_restante'] > 0.01]
+            vehiculos_bat_terminados_hoy += (len(vehiculos_bat) - len(vehiculos_bat_next))
+            vehiculos_bat = vehiculos_bat_next
             energia_bateria -= (p_entregada_bat_esta_ronda / 60.0)
         else:
             # Reconexión para carga de batería
@@ -139,7 +144,9 @@ def correr_simulacion():
                 v['energia_restante'] -= energia_recibida
                 energia_entregada_red += energia_recibida
                 
-            vehiculos_red = [v for v in vehiculos_red if v['energia_restante'] > 0.01]
+            vehiculos_red_next = [v for v in vehiculos_red if v['energia_restante'] > 0.01]
+            vehiculos_red_terminados_hoy += (len(vehiculos_red) - len(vehiculos_red_next))
+            vehiculos_red = vehiculos_red_next
 
         historial.append({
             'Tiempo (Hora)': t / 60.0,
@@ -148,7 +155,11 @@ def correr_simulacion():
             'Potencia Red  (kW)': p_red_bat,
             'Potencia Sin Batería Tradicional (kW)': p_entregada_red_total,
             'Mangueras Ocupadas CON': len(vehiculos_bat),
-            'Mangueras Ocupadas SIN': len(vehiculos_red)
+            'Mangueras Ocupadas SIN': len(vehiculos_red),
+            'Energía Entregada CON (kWh)': energia_entregada_bat,
+            'Energía Entregada SIN (kWh)': energia_entregada_red,
+            'Vehículos Completados CON': vehiculos_bat_terminados_hoy,
+            'Vehículos Completados SIN': vehiculos_red_terminados_hoy
         })
         
     df = pd.DataFrame(historial)
@@ -202,3 +213,13 @@ st.line_chart(df_graficos[['Mangueras Ocupadas CON', 'Mangueras Ocupadas SIN']])
 # Gráfico 4: Estado de Carga Batería
 st.subheader("🔋 4. Vida y Desgaste del Estado de Carga de las Baterías  (SoC %)")
 st.line_chart(df_graficos['SoC Batería (%)'], color="#2ecc71")
+
+# Gráfico 5: Vehículos Cargados (Evolución)
+st.subheader("🏁 5. Evolución de Vehículos Completados")
+st.caption("Muestra la cantidad acumulada de EVs que han finalizado su recarga.")
+st.line_chart(df_graficos[['Vehículos Completados CON', 'Vehículos Completados SIN']])
+
+# Gráfico 6: Energía Entregada (Acumulada)
+st.subheader("📈 6. Energía Total Entregada a Vehículos (kWh)")
+st.caption("Comparativa de la cantidad total de energía volcada hacia los coches a lo largo del día.")
+st.line_chart(df_graficos[['Energía Entregada CON (kWh)', 'Energía Entregada SIN (kWh)']])
