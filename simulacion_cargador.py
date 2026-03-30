@@ -18,8 +18,35 @@ st.sidebar.header("⚙️ Parámetros de la Instalación")
 bateria_capacidad = st.sidebar.number_input("Capacidad Batería  (kWh)", value=180.0, step=10.0)
 
 st.sidebar.subheader("Dinámica Vehicular")
-tasa_llegadas = st.sidebar.slider("Tasa de llegadas (vehículos/hora)", min_value=0.1, max_value=4.0, value=0.6, step=0.1)
-energia_por_ev = st.sidebar.slider("Energía media demandada por EV (kWh)", min_value=10.0, max_value=80.0, value=40.0, step=5.0)
+usar_tasa_por_hora = st.sidebar.checkbox("Configurar tasa de llegadas por hora", value=True)
+
+if usar_tasa_por_hora:
+    st.sidebar.write("Tasa de llegadas (veh/hora):")
+    tasas_defecto = [0.0] * 24
+    tasas_defecto[8] = 3.0
+    tasas_defecto[12] = 1.0
+    tasas_defecto[13] = 1.0
+    tasas_defecto[14] = 1.0
+    tasas_defecto[20] = 1.0
+    
+    df_horas_init = pd.DataFrame({
+        "Hora": [f"{i:02d}:00" for i in range(24)],
+        "Tasa": tasas_defecto
+    })
+    df_tasas = st.sidebar.data_editor(
+        df_horas_init,
+        hide_index=True,
+        column_config={
+            "Hora": st.column_config.TextColumn("Hora", disabled=True),
+            "Tasa": st.column_config.NumberColumn("Tasa", min_value=0.0, max_value=20.0, step=0.1)
+        }
+    )
+    tasas_llegadas_lista = df_tasas["Tasa"].tolist()
+else:
+    tasa_llegadas = st.sidebar.slider("Tasa de llegadas (vehículos/hora)", min_value=0.1, max_value=4.0, value=0.6, step=0.1)
+    tasas_llegadas_lista = [tasa_llegadas] * 24
+
+energia_por_ev = st.sidebar.slider("Energía media demandada por EV (kWh)", min_value=10.0, max_value=80.0, value=60.0, step=5.0)
 potencia_por_ev = st.sidebar.slider("Potencia máxima admitida por el EV (kW)", min_value=50.0, max_value=240.0, value=150.0, step=10.0)
 
 semilla = st.sidebar.slider("Semilla aleatoria (variar escenarios del día)", min_value=1, max_value=100, value=42)
@@ -28,7 +55,6 @@ def correr_simulacion():
     # Inicialización de 24h
     np.random.seed(semilla)
     minutos = 24 * 60
-    prob_llegada = tasa_llegadas / 60.0
     
     # KPIs -> Sistema CON Batería
     energia_bateria = bateria_capacidad
@@ -46,6 +72,9 @@ def correr_simulacion():
     historial = []
     
     for t in range(minutos):
+        hora_actual = t // 60
+        prob_llegada = tasas_llegadas_lista[hora_actual] / 60.0
+        
         # 1. Llegadas (Impacta en ambos universos matemáticos al mismo tiempo para puridad comparativa)
         if np.random.rand() < prob_llegada:
             e_demanda = np.random.uniform(energia_por_ev * 0.8, energia_por_ev * 1.2)
