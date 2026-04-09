@@ -16,6 +16,16 @@ Esta herramienta simula el funcionamiento a lo largo de un día completo de un c
 
 st.sidebar.header("⚙️ Parámetros de la Instalación")
 bateria_capacidad = st.sidebar.number_input("Capacidad Batería  (kWh)", value=180.0, step=10.0)
+modo_descarga = st.sidebar.selectbox(
+    "Estrategia de carga de vehículos",
+    options=[
+        "Solo Baterías (No Simultánea)",
+        "Simultánea CON recarga de excedente",
+        "Simultánea SIN recarga de excedente"
+    ],
+    index=1,
+    help="Define el comportamiento al recargar vehículos. 'Solo Baterías': la red no aporta a los vehículos. 'Simultánea': la red aporta hasta 40kW a los vehículos, y el excedente (si la demanda es menor) puede o no usarse para cargar la batería simultáneamente."
+)
 
 st.sidebar.subheader("Dinámica Vehicular")
 usar_tasa_por_hora = st.sidebar.checkbox("Configurar tasa de llegadas por hora", value=True)
@@ -72,6 +82,9 @@ def correr_simulacion():
     vehiculos_bat_terminados_hoy = 0
     vehiculos_red_terminados_hoy = 0
     
+    tiempo_espera_acumulado_bat = 0.0
+    tiempo_espera_acumulado_red = 0.0
+    
     historial = []
     
     for t in range(minutos):
@@ -103,14 +116,40 @@ def correr_simulacion():
         p_entregada_bat_esta_ronda = 0.0
         p_red_bat = 0.0
         
-        if len(vehiculos_bat) > 0 and energia_bateria > 0.5:
+        if len(vehiculos_bat) > 0:
             demanda_total = sum(v['potencia_demanda'] for v in vehiculos_bat)
             
             # El inversor exprime hasta un máximo de 240 kW a los EVs conectados
             p_entregada_bat_esta_ronda = min(demanda_total, 240.0)
             
-            # Freno de emergencia por batería agotada
-            p_entregada_bat_esta_ronda = min(p_entregada_bat_esta_ronda, energia_bateria * 60.0)
+            if modo_descarga in ["Simultánea CON recarga de excedente", "Simultánea SIN recarga de excedente"]:
+                p_red_aporte_ev = min(p_entregada_bat_esta_ronda, 40.0)
+                p_bat_aporte_ev = p_entregada_bat_esta_ronda - p_red_aporte_ev
+                
+                # Freno de emergencia por batería agotada
+                p_bat_aporte_ev = min(p_bat_aporte_ev, energia_bateria * 60.0)
+                
+                p_entregada_bat_esta_ronda = p_red_aporte_ev + p_bat_aporte_ev
+                energia_bateria -= (p_bat_aporte_ev / 60.0)
+                
+                potencia_sobrante_red = 40.0 - p_red_aporte_ev
+                
+                if modo_descarga == "Simultánea CON recarga de excedente" and potencia_sobrante_red > 0 and energia_bateria < bateria_capacidad:
+                    energia_que_cabe = bateria_capacidad - energia_bateria
+                    p_carga_bat = min(potencia_sobrante_red, energia_que_cabe * 60.0)
+                    energia_bateria += (p_carga_bat / 60.0)
+                    p_red_bat = p_red_aporte_ev + p_carga_bat
+                else:
+                    p_red_bat = p_red_aporte_ev
+            else:
+                if energia_bateria > 0.5:
+                    p_entregada_bat_esta_ronda = min(p_entregada_bat_esta_ronda, energia_bateria * 60.0)
+                    energia_bateria -= (p_entregada_bat_esta_ronda / 60.0)
+                else:
+                    p_entregada_bat_esta_ronda = 0.0
+                    if energia_bateria < bateria_capacidad:
+                        p_red_bat = 40.0
+                        energia_bateria = min(bateria_capacidad, energia_bateria + (p_red_bat / 60.0))
             
             if p_entregada_bat_esta_ronda > 0:
                 for v in vehiculos_bat:
@@ -122,7 +161,6 @@ def correr_simulacion():
             vehiculos_bat_next = [v for v in vehiculos_bat if v['energia_restante'] > 0.01]
             vehiculos_bat_terminados_hoy += (len(vehiculos_bat) - len(vehiculos_bat_next))
             vehiculos_bat = vehiculos_bat_next
-            energia_bateria -= (p_entregada_bat_esta_ronda / 60.0)
         else:
             # Reconexión para carga de batería
             if energia_bateria < bateria_capacidad:
@@ -148,6 +186,9 @@ def correr_simulacion():
             vehiculos_red_terminados_hoy += (len(vehiculos_red) - len(vehiculos_red_next))
             vehiculos_red = vehiculos_red_next
 
+        tiempo_espera_acumulado_bat += len(vehiculos_bat)
+        tiempo_espera_acumulado_red += len(vehiculos_red)
+
         historial.append({
             'Tiempo (Hora)': t / 60.0,
             'SoC Batería (%)': (energia_bateria / bateria_capacidad) * 100.0,
@@ -159,14 +200,16 @@ def correr_simulacion():
             'Energía Entregada CON (kWh)': energia_entregada_bat,
             'Energía Entregada SIN (kWh)': energia_entregada_red,
             'Vehículos Completados CON': vehiculos_bat_terminados_hoy,
-            'Vehículos Completados SIN': vehiculos_red_terminados_hoy
+            'Vehículos Completados SIN': vehiculos_red_terminados_hoy,
+            'Tiempo Acumulado CON (min)': tiempo_espera_acumulado_bat,
+            'Tiempo Acumulado SIN (min)': tiempo_espera_acumulado_red
         })
         
     df = pd.DataFrame(historial)
     
     res = {
-        'bat': {'totales': totales_bat, 'rechazados': rechazados_bat, 'energia': energia_entregada_bat},
-        'red': {'totales': totales_red, 'rechazados': rechazados_red, 'energia': energia_entregada_red}
+        'bat': {'totales': totales_bat, 'rechazados': rechazados_bat, 'energia': energia_entregada_bat, 'tiempo_medio': (tiempo_espera_acumulado_bat / totales_bat) if totales_bat > 0 else 0},
+        'red': {'totales': totales_red, 'rechazados': rechazados_red, 'energia': energia_entregada_red, 'tiempo_medio': (tiempo_espera_acumulado_red / totales_red) if totales_red > 0 else 0}
     }
     return df, res
 
@@ -183,6 +226,7 @@ with col1:
     st.metric("Pérdida de Clientes (Cola Larga)", res['bat']['rechazados'], delta_color="inverse")
     st.metric("Total Energía Despachada", f"{res['bat']['energia']:.1f} kWh")
     st.metric("Pico Carga Hacia Vehículos", f"{df['Potencia Con Batería  (kW)'].max():.1f} kW", delta="Alta Potencia")
+    st.metric("Tiempo Medio Carga/Vehículo", f"{res['bat']['tiempo_medio']:.1f} min")
 
 with col2:
     st.warning("#### 🔴 Cargador Directo Convencional (Constante a 40 kW)")
@@ -190,6 +234,7 @@ with col2:
     st.metric("Pérdida de Clientes (Cola Larga)", res['red']['rechazados'], delta_color="inverse")
     st.metric("Total Energía Despachada", f"{res['red']['energia']:.1f} kWh")
     st.metric("Pico Carga Hacia Vehículos", f"{df['Potencia Sin Batería Tradicional (kW)'].max():.1f} kW")
+    st.metric("Tiempo Medio Carga/Vehículo", f"{res['red']['tiempo_medio']:.1f} min")
 
 
 st.markdown("---")
@@ -202,7 +247,7 @@ st.line_chart(df_graficos[['Potencia Con Batería  (kW)', 'Potencia Sin Batería
 
 # Gráfico 2: Intercambio 
 st.subheader("🔄 2. Detalle Intercambio  (Red vs. Entregada)")
-st.caption("Ilustra el funcionamiento exclusivo de intermitencia: el sistema  absorbe 40 kW de la red en los descansos, deteniendo el consumo durante la recarga de EVs al máximo.")
+st.caption("Ilustra la utilización de la red eléctrica para recargar la batería (o ayudar a recargar vehículos) comparado con la potencia entregada a los vehículos.")
 st.area_chart(df_graficos[['Potencia Con Batería  (kW)', 'Potencia Red  (kW)']])
 
 # Gráfico 3: Colapso vs Fluidez
@@ -223,3 +268,8 @@ st.line_chart(df_graficos[['Vehículos Completados CON', 'Vehículos Completados
 st.subheader("📈 6. Energía Total Entregada a Vehículos (kWh)")
 st.caption("Comparativa de la cantidad total de energía volcada hacia los coches a lo largo del día.")
 st.line_chart(df_graficos[['Energía Entregada CON (kWh)', 'Energía Entregada SIN (kWh)']])
+
+# Gráfico 7: Tiempo de Carga Acumulado
+st.subheader("⏱️ 7. Tiempo de Estancia Acumulado por Vehículos (Minutos)")
+st.caption("Evolución del tiempo total invertido por todos los vehículos en la estación. Una pendiente más pronunciada indica que los coches pasan un tiempo mayor ocupando los cargadores.")
+st.line_chart(df_graficos[['Tiempo Acumulado CON (min)', 'Tiempo Acumulado SIN (min)']])
