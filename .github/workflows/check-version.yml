@@ -1,0 +1,32 @@
+# .github/workflows/check-version.yml
+
+name: Check version
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install packaging
+
+      - name: Fetch main
+        run: git fetch origin main
+
+      - name: Check version
+        run: python scripts/check_version.py
