@@ -1,0 +1,29 @@
+[project]
+name = "wow-iflex"
+version = "0.1.0"
+description = "Desarrollo de software relacionado con el control y gestión directa de los integrados en el iFlex."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "atomicwrites==1.4.1",
+    "cantools==40.5.0",
+    "customtkinter==5.2.2",
+    "dynaconf==3.2.11",
+    "eel==0.18.2",
+    "fastapi==0.136.1",
+    "filelock==3.29.0",
+    "httpcore==1.0.9",
+    "httpx==0.28.1",
+    "loguru==0.7.3",
+    "paho-mqtt==1.6.1",
+    "ping3==5.1.5",
+    "psutil==7.0.0",
+    "pydantic==2.13.3",
+    "pydantic-core==2.46.3",
+    "pymodbus==3.11.1",
+    "python-can==4.6.1",
+    "python-multipart==0.0.32",
+    "requests==2.33.1",
+    "smbus2==0.5.0",
+    "uvicorn==0.46.0",
+]
